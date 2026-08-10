@@ -1,0 +1,55 @@
+name: FX signal check
+
+on:
+  schedule:
+    # 30分おきに実行(UTC基準。GitHub Actionsの仕様上、数分の遅延が発生することがあります)
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {} # 手動実行用ボタンを有効化
+
+permissions:
+  contents: write # state.json をコミットし直すために必要
+
+jobs:
+  check-signal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存パッケージをインストール
+        run: pip install -r requirements.txt
+
+      - name: シグナルチェックを実行
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          FX_SYMBOL: "USDJPY=X"
+          FX_INTERVAL: "1h"
+          FX_PERIOD: "30d"
+          SIGNAL_THRESHOLD: "2"
+        run: python fx_signal_checker.py
+
+      - name: cTraderで発注(シグナルが出た場合のみ意味を持つ)
+        env:
+          CTRADER_CLIENT_ID: ${{ secrets.CTRADER_CLIENT_ID }}
+          CTRADER_CLIENT_SECRET: ${{ secrets.CTRADER_CLIENT_SECRET }}
+          CTRADER_ACCESS_TOKEN: ${{ secrets.CTRADER_ACCESS_TOKEN }}
+          CTRADER_ACCOUNT_ID: ${{ secrets.CTRADER_ACCOUNT_ID }}
+          CTRADER_ENV: "demo" # デモ口座。live口座で使う場合のみ "live" に変更
+          CTRADER_SYMBOL: "USDJPY" # ブローカー側の銘柄名表記に合わせる
+          ORDER_VOLUME_LOTS: "0.01" # 最初は最小ロットで検証
+          ENABLE_TRADING: "false" # trueにするまでは発注せずログ出力のみ(安全装置)
+          # FX_SIGNAL / FX_PRICE は前のステップが GITHUB_ENV 経由で渡す
+        run: python ctrader_trader.py
+
+      - name: state.json の変更をコミット
+        run: |
+          git config user.name "fx-signal-bot"
+          git config user.email "actions@github.com"
+          git add state.json
+          git diff --staged --quiet || git commit -m "chore: update signal state [skip ci]"
+          git push
