@@ -24,26 +24,24 @@ jobs:
       - name: 依存パッケージをインストール
         run: pip install -r requirements.txt
 
-      - name: シグナルチェックを実行
+      - name: シグナルチェックを実行(18通貨ペア)
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          FX_SYMBOL: "USDJPY=X"
+          FX_SYMBOLS: "USDJPY=X,EURJPY=X,GBPJPY=X,AUDJPY=X,NZDJPY=X,CADJPY=X,CHFJPY=X,EURUSD=X,GBPUSD=X,AUDUSD=X,NZDUSD=X,USDCAD=X,USDCHF=X,EURGBP=X,EURAUD=X,EURCHF=X,GBPCHF=X,AUDNZD=X"
           FX_INTERVAL: "1h"
           FX_PERIOD: "30d"
           SIGNAL_THRESHOLD: "2"
         run: python fx_signal_checker.py
 
-      - name: cTraderで発注(シグナルが出た場合のみ意味を持つ)
+      - name: cTraderで発注(新規BUY/SELLシグナルが出た通貨ペアのみ)
         env:
           CTRADER_CLIENT_ID: ${{ secrets.CTRADER_CLIENT_ID }}
           CTRADER_CLIENT_SECRET: ${{ secrets.CTRADER_CLIENT_SECRET }}
           CTRADER_ACCESS_TOKEN: ${{ secrets.CTRADER_ACCESS_TOKEN }}
           CTRADER_ACCOUNT_ID: ${{ secrets.CTRADER_ACCOUNT_ID }}
           CTRADER_ENV: "demo" # デモ口座。live口座で使う場合のみ "live" に変更
-          CTRADER_SYMBOL: "USDJPY" # ブローカー側の銘柄名表記に合わせる
-          ORDER_VOLUME_LOTS: "0.01" # 最初は最小ロットで検証
+          ORDER_VOLUME_LOTS: "0.01" # 全通貨ペア共通。最初は最小ロットで検証
           ENABLE_TRADING: "true" # trueにするまでは発注せずログ出力のみ(安全装置)
-          # FX_SIGNAL / FX_PRICE は前のステップが GITHUB_ENV 経由で渡す
         run: python ctrader_trader.py
 
       - name: state.json の変更をコミット
