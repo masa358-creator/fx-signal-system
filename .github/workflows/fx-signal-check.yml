@@ -33,7 +33,7 @@ jobs:
           SIGNAL_THRESHOLD: "2"
         run: python fx_signal_checker.py
 
-      - name: cTraderで発注(新規BUY/SELLシグナルが出た通貨ペアのみ)
+      - name: cTraderで発注(新規BUY/SELLシグナルが出た通貨ペアのみ、SL/TP・発注上限つき)
         env:
           CTRADER_CLIENT_ID: ${{ secrets.CTRADER_CLIENT_ID }}
           CTRADER_CLIENT_SECRET: ${{ secrets.CTRADER_CLIENT_SECRET }}
@@ -41,6 +41,9 @@ jobs:
           CTRADER_ACCOUNT_ID: ${{ secrets.CTRADER_ACCOUNT_ID }}
           CTRADER_ENV: "demo" # デモ口座。live口座で使う場合のみ "live" に変更
           ORDER_VOLUME_LOTS: "0.01" # 全通貨ペア共通。最初は最小ロットで検証
+          STOP_LOSS_PIPS: "20" # 損切りまでの値幅(pips)
+          TAKE_PROFIT_PIPS: "40" # 利確までの値幅(pips)
+          MAX_ORDERS_PER_DAY: "10" # 1日の発注件数の上限(安全装置)
           ENABLE_TRADING: "true" # trueにするまでは発注せずログ出力のみ(安全装置)
         run: python ctrader_trader.py
 
@@ -48,6 +51,6 @@ jobs:
         run: |
           git config user.name "fx-signal-bot"
           git config user.email "actions@github.com"
-          git add state.json docs/index.html
+          git add state.json docs/index.html trade_log.json
           git diff --staged --quiet || git commit -m "chore: update signal state and status page [skip ci]"
           git push
