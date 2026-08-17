@@ -44,10 +44,10 @@ jobs:
           ENABLE_TRADING: "true" # trueにするまでは発注せずログ出力のみ(安全装置)
         run: python ctrader_trader.py
 
-      - name: state.json の変更をコミット
+      - name: state.json とステータスページの変更をコミット
         run: |
           git config user.name "fx-signal-bot"
           git config user.email "actions@github.com"
-          git add state.json
-          git diff --staged --quiet || git commit -m "chore: update signal state [skip ci]"
+          git add state.json docs/index.html
+          git diff --staged --quiet || git commit -m "chore: update signal state and status page [skip ci]"
           git push
