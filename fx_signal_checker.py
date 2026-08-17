@@ -20,6 +20,7 @@ FX 売買タイミング自動判定システム(複数通貨ペア対応版)
 import json
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -41,6 +42,8 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 STATE_FILE = Path(__file__).parent / "state.json"
 ACTIONABLE_FILE = Path(__file__).parent / "actionable_signals.json"
+DOCS_DIR = Path(__file__).parent / "docs"
+STATUS_PAGE = DOCS_DIR / "index.html"
 
 
 def ctrader_symbol_name(yf_symbol: str) -> str:
@@ -175,9 +178,60 @@ def notify_discord(symbol_display: str, result: dict) -> None:
     resp.raise_for_status()
 
 
+def generate_status_page(all_results: list) -> None:
+    """全通貨ペアの最新状態を一覧できる、スマホ向けの簡易HTMLページを生成する"""
+    DOCS_DIR.mkdir(exist_ok=True)
+
+    def badge(signal: str) -> str:
+        color = {"BUY": "#16a34a", "SELL": "#dc2626", "NEUTRAL": "#9ca3af"}.get(signal, "#9ca3af")
+        label = {"BUY": "🟢 BUY", "SELL": "🔴 SELL", "NEUTRAL": "⚪ NEUTRAL"}.get(signal, signal)
+        return f'<span style="background:{color};color:#fff;padding:4px 10px;border-radius:12px;font-weight:bold;font-size:14px;">{label}</span>'
+
+    rows = []
+    # BUY/SELLを上に、NEUTRALを下にソート
+    sorted_results = sorted(all_results, key=lambda r: 0 if r["signal"] != "NEUTRAL" else 1)
+    for r in sorted_results:
+        reasons_text = "、".join(r["reasons"]) if r["reasons"] else "-"
+        rows.append(f"""
+        <tr>
+          <td style="padding:10px;font-weight:bold;">{r['symbol']}</td>
+          <td style="padding:10px;">{badge(r['signal'])}</td>
+          <td style="padding:10px;">{r['price']:.4f}</td>
+          <td style="padding:10px;font-size:13px;color:#555;">{reasons_text}</td>
+        </tr>""")
+
+    updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FXシグナル一覧</title>
+<style>
+  body {{ font-family: -apple-system, sans-serif; background:#f3f4f6; margin:0; padding:16px; }}
+  h1 {{ font-size:20px; }}
+  .updated {{ color:#666; font-size:13px; margin-bottom:16px; }}
+  table {{ width:100%; border-collapse:collapse; background:#fff; border-radius:8px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.1); }}
+  th {{ text-align:left; padding:10px; background:#111827; color:#fff; font-size:13px; }}
+  tr:nth-child(even) {{ background:#f9fafb; }}
+</style>
+</head>
+<body>
+<h1>📊 FXシグナル一覧(18通貨ペア)</h1>
+<div class="updated">最終更新: {updated_at}(30分おきに自動更新)</div>
+<table>
+<tr><th>通貨ペア</th><th>シグナル</th><th>レート</th><th>根拠</th></tr>
+{''.join(rows)}
+</table>
+</body>
+</html>"""
+    STATUS_PAGE.write_text(html, encoding="utf-8")
+
+
 def main() -> None:
     state = load_state()
     actionable = []
+    all_results = []
 
     for yf_symbol in SYMBOLS:
         display = ctrader_symbol_name(yf_symbol)
@@ -190,6 +244,7 @@ def main() -> None:
             continue
 
         print(f"[{display}] {json.dumps(result, ensure_ascii=False)}")
+        all_results.append({"symbol": display, **result})
 
         last_signal = state.get(display, "NEUTRAL")
         if result["signal"] != "NEUTRAL" and result["signal"] != last_signal:
@@ -209,6 +264,7 @@ def main() -> None:
 
     save_state(state)
     ACTIONABLE_FILE.write_text(json.dumps(actionable, ensure_ascii=False, indent=2))
+    generate_status_page(all_results)
     print(f"\n発注対象シグナル数: {len(actionable)}")
 
 
