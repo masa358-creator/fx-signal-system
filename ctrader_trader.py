@@ -1,19 +1,18 @@
 """
-cTrader Open API 経由でシグナルに応じた成行注文を出すスクリプト(デモ口座想定)
+cTrader Open API 経由で、複数通貨ペアのシグナルに応じた成行注文を出すスクリプト(デモ口座想定)
 
-fx_signal_checker.py が判定した結果(環境変数 FX_SIGNAL)を受け取って発注します。
-GitHub Actionsでは同じジョブの前のステップが FX_SIGNAL を出力する前提です。
+fx_signal_checker.py が書き出した actionable_signals.json
+(例: [{"symbol": "USDJPY", "signal": "BUY", "price": 159.05}, ...])
+を読み込み、該当する通貨ペアすべてに成行注文を出します。
 
 環境変数:
   CTRADER_CLIENT_ID       必須。アプリ登録時のClient ID
   CTRADER_CLIENT_SECRET   必須。アプリ登録時のClient Secret
-  CTRADER_ACCESS_TOKEN    必須。oauth_get_token.pyで取得したAccess Token
-  CTRADER_ACCOUNT_ID      必須。list_accounts.pyで確認したctidTraderAccountId
+  CTRADER_ACCESS_TOKEN    必須。取得したAccess Token
+  CTRADER_ACCOUNT_ID      必須。ctidTraderAccountId
   CTRADER_ENV             任意。"demo"(デフォルト) または "live"
-  CTRADER_SYMBOL          任意。デフォルト "EURUSD"(ブローカーの銘柄名表記に合わせる。例 "USDJPY")
-  ORDER_VOLUME_LOTS       任意。デフォルト 0.01(ロット数。最初は最小ロットで検証してください)
+  ORDER_VOLUME_LOTS       任意。デフォルト 0.01(通貨ペア共通のロット数)
   ENABLE_TRADING          任意。"true" にしない限り発注せずログ出力のみ(安全装置)
-  FX_SIGNAL               fx_signal_checker.py から渡される "BUY" / "SELL" / "NEUTRAL"
 
 注意:
   volumeの単位換算(1ロット=100,000通貨として計算)は一般的な設定ですが、
@@ -21,8 +20,9 @@ GitHub Actionsでは同じジョブの前のステップが FX_SIGNAL を出力�
   本番相当の金額で使う前に、必ず最小ロットで発注結果を確認してください。
 """
 
+import json
 import os
-import sys
+from pathlib import Path
 
 from ctrader_open_api import Client, EndPoints, Protobuf, TcpProtocol
 from ctrader_open_api.messages.OpenApiMessages_pb2 import (
@@ -42,17 +42,24 @@ CLIENT_SECRET = os.environ["CTRADER_CLIENT_SECRET"]
 ACCESS_TOKEN = os.environ["CTRADER_ACCESS_TOKEN"]
 ACCOUNT_ID = int(os.environ["CTRADER_ACCOUNT_ID"])
 ENV = os.environ.get("CTRADER_ENV", "demo")
-SYMBOL_NAME = os.environ.get("CTRADER_SYMBOL", "EURUSD")
 VOLUME_LOTS = float(os.environ.get("ORDER_VOLUME_LOTS", "0.01"))
 ENABLE_TRADING = os.environ.get("ENABLE_TRADING", "false").lower() == "true"
-SIGNAL = os.environ.get("FX_SIGNAL", "NEUTRAL")
 
-if SIGNAL not in ("BUY", "SELL"):
-    print(f"シグナルが BUY/SELL ではないため終了します(受け取った値: {SIGNAL})")
-    sys.exit(0)
+ACTIONABLE_FILE = Path(__file__).parent / "actionable_signals.json"
+
+if ACTIONABLE_FILE.exists():
+    SIGNALS = json.loads(ACTIONABLE_FILE.read_text())
+else:
+    SIGNALS = []
+
+if not SIGNALS:
+    print("発注対象のシグナルがないため終了します")
+    raise SystemExit(0)
 
 host = EndPoints.PROTOBUF_DEMO_HOST if ENV == "demo" else EndPoints.PROTOBUF_LIVE_HOST
 client = Client(host, EndPoints.PROTOBUF_PORT, TcpProtocol)
+
+pending_count = 0
 
 
 def volume_to_cents(lots: float) -> int:
@@ -65,27 +72,34 @@ def stop_reactor() -> None:
         reactor.stop()
 
 
+def maybe_finish() -> None:
+    global pending_count
+    pending_count -= 1
+    if pending_count <= 0:
+        stop_reactor()
+
+
 def on_error(failure) -> None:
     print("エラー:", failure)
-    stop_reactor()
+    maybe_finish()
 
 
 def on_order_response(response) -> None:
     print("発注完了:", Protobuf.extract(response))
-    stop_reactor()
+    maybe_finish()
 
 
-def send_order(symbol_id: int) -> None:
+def send_order(symbol_name: str, side: str, symbol_id: int) -> None:
     if not ENABLE_TRADING:
-        print(f"[ドライラン] ENABLE_TRADING=false のため発注をスキップ(判定: {SIGNAL})")
-        stop_reactor()
+        print(f"[ドライラン] ENABLE_TRADING=false のため発注をスキップ({symbol_name} {side})")
+        maybe_finish()
         return
 
     request = ProtoOANewOrderReq()
     request.ctidTraderAccountId = ACCOUNT_ID
     request.symbolId = symbol_id
     request.orderType = ProtoOAOrderType.MARKET
-    request.tradeSide = ProtoOATradeSide.BUY if SIGNAL == "BUY" else ProtoOATradeSide.SELL
+    request.tradeSide = ProtoOATradeSide.BUY if side == "BUY" else ProtoOATradeSide.SELL
     request.volume = volume_to_cents(VOLUME_LOTS)
 
     deferred = client.send(request)
@@ -93,19 +107,28 @@ def send_order(symbol_id: int) -> None:
 
 
 def on_symbols_response(response) -> None:
+    global pending_count
     message = Protobuf.extract(response)
-    symbol_id = None
-    for symbol in message.symbol:
-        if symbol.symbolName == SYMBOL_NAME:
-            symbol_id = symbol.symbolId
-            break
+    name_to_id = {symbol.symbolName: symbol.symbolId for symbol in message.symbol}
 
-    if symbol_id is None:
-        print(f"シンボル '{SYMBOL_NAME}' が見つかりません。ブローカー側の銘柄名表記を確認してください。")
+    orders_to_place = []
+    for entry in SIGNALS:
+        symbol_name = entry["symbol"]
+        side = entry["signal"]
+        symbol_id = name_to_id.get(symbol_name)
+        if symbol_id is None:
+            print(f"シンボル '{symbol_name}' がブローカー側に見つかりません。スキップします。")
+            continue
+        orders_to_place.append((symbol_name, side, symbol_id))
+
+    if not orders_to_place:
+        print("発注可能なシンボルがありませんでした")
         stop_reactor()
         return
 
-    send_order(symbol_id)
+    pending_count = len(orders_to_place)
+    for symbol_name, side, symbol_id in orders_to_place:
+        send_order(symbol_name, side, symbol_id)
 
 
 def on_account_auth_response(_response) -> None:
@@ -126,7 +149,7 @@ def on_app_auth_response(_response) -> None:
 
 
 def connected(_client) -> None:
-    print("接続完了")
+    print("接続完了。対象シグナル:", SIGNALS)
     request = ProtoOAApplicationAuthReq()
     request.clientId = CLIENT_ID
     request.clientSecret = CLIENT_SECRET
