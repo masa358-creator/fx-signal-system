@@ -42,7 +42,7 @@ jobs:
           CTRADER_ENV: "demo" # デモ口座。live口座で使う場合のみ "live" に変更
           CTRADER_SYMBOL: "USDJPY" # ブローカー側の銘柄名表記に合わせる
           ORDER_VOLUME_LOTS: "0.01" # 最初は最小ロットで検証
-          ENABLE_TRADING: "false" # trueにするまでは発注せずログ出力のみ(安全装置)
+          ENABLE_TRADING: "true" # trueにするまでは発注せずログ出力のみ(安全装置)
           # FX_SIGNAL / FX_PRICE は前のステップが GITHUB_ENV 経由で渡す
         run: python ctrader_trader.py
 
