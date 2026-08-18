@@ -37,8 +37,13 @@ DEFAULT_SYMBOLS = [
 SYMBOLS = [s.strip() for s in os.environ.get("FX_SYMBOLS", ",".join(DEFAULT_SYMBOLS)).split(",") if s.strip()]
 INTERVAL = os.environ.get("FX_INTERVAL", "1h")
 PERIOD = os.environ.get("FX_PERIOD", "30d")
-THRESHOLD = int(os.environ.get("SIGNAL_THRESHOLD", "2"))
+THRESHOLD = int(os.environ.get("SIGNAL_THRESHOLD", "2"))  # 現在未使用(互換性のため残置)
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+
+RANK_LOTS = {
+    "S": float(os.environ.get("LOT_S_RANK", "0.1")),   # 3条件以上一致
+    "A": float(os.environ.get("LOT_A_RANK", "0.07")),  # 2条件一致(0.05〜0.1の中間値)
+}
 
 STATE_FILE = Path(__file__).parent / "state.json"
 ACTIONABLE_FILE = Path(__file__).parent / "actionable_signals.json"
@@ -93,53 +98,72 @@ def score_signal(df: pd.DataFrame) -> dict:
     latest = df.iloc[-1]
     prev = df.iloc[-2]
 
-    buy_score = 0
-    sell_score = 0
-    reasons = []
+    buy_conditions = []
+    sell_conditions = []
 
     ma_cross_up = prev["MA_short"] <= prev["MA_long"] and latest["MA_short"] > latest["MA_long"]
     ma_cross_down = prev["MA_short"] >= prev["MA_long"] and latest["MA_short"] < latest["MA_long"]
     if ma_cross_up:
-        buy_score += 2
-        reasons.append("移動平均ゴールデンクロス")
+        buy_conditions.append("移動平均ゴールデンクロス")
     if ma_cross_down:
-        sell_score += 2
-        reasons.append("移動平均デッドクロス")
+        sell_conditions.append("移動平均デッドクロス")
 
     if latest["RSI"] < 30:
-        buy_score += 1
-        reasons.append(f"RSI売られすぎ({latest['RSI']:.1f})")
+        buy_conditions.append(f"RSI売られすぎ({latest['RSI']:.1f})")
     if latest["RSI"] > 70:
-        sell_score += 1
-        reasons.append(f"RSI買われすぎ({latest['RSI']:.1f})")
+        sell_conditions.append(f"RSI買われすぎ({latest['RSI']:.1f})")
 
     macd_cross_up = prev["MACD"] <= prev["MACD_signal"] and latest["MACD"] > latest["MACD_signal"]
     macd_cross_down = prev["MACD"] >= prev["MACD_signal"] and latest["MACD"] < latest["MACD_signal"]
     if macd_cross_up:
-        buy_score += 1
-        reasons.append("MACDゴールデンクロス")
+        buy_conditions.append("MACDゴールデンクロス")
     if macd_cross_down:
-        sell_score += 1
-        reasons.append("MACDデッドクロス")
+        sell_conditions.append("MACDデッドクロス")
 
     if latest["Close"] <= latest["BB_lower"]:
-        buy_score += 1
-        reasons.append("ボリンジャーバンド-2σタッチ")
+        buy_conditions.append("ボリンジャーバンド-2σタッチ")
     if latest["Close"] >= latest["BB_upper"]:
-        sell_score += 1
-        reasons.append("ボリンジャーバンド+2σタッチ")
+        sell_conditions.append("ボリンジャーバンド+2σタッチ")
 
-    if buy_score >= THRESHOLD and buy_score > sell_score:
+    buy_count = len(buy_conditions)
+    sell_count = len(sell_conditions)
+
+    if buy_count > sell_count and buy_count >= 1:
         signal = "BUY"
-    elif sell_score >= THRESHOLD and sell_score > buy_score:
+        match_count = buy_count
+        reasons = buy_conditions
+    elif sell_count > buy_count and sell_count >= 1:
         signal = "SELL"
+        match_count = sell_count
+        reasons = sell_conditions
     else:
         signal = "NEUTRAL"
+        match_count = 0
+        reasons = []
+
+    if match_count >= 3:
+        rank = "S"
+        should_trade = True
+        lot = RANK_LOTS["S"]
+    elif match_count == 2:
+        rank = "A"
+        should_trade = True
+        lot = RANK_LOTS["A"]
+    elif match_count == 1:
+        rank = "B"
+        should_trade = False  # 1条件のみは見送り(通知のみ)
+        lot = None
+    else:
+        rank = None
+        should_trade = False
+        lot = None
 
     return {
         "signal": signal,
-        "buy_score": buy_score,
-        "sell_score": sell_score,
+        "rank": rank,
+        "should_trade": should_trade,
+        "lot": lot,
+        "match_count": match_count,
         "reasons": reasons,
         "price": float(latest["Close"]),
         "timestamp": str(latest.name),
@@ -166,11 +190,17 @@ def notify_discord(symbol_display: str, result: dict) -> None:
         return
 
     emoji = "🟢" if result["signal"] == "BUY" else "🔴"
+    rank_label = {
+        "S": "⭐️Sランク(3条件一致・発注)",
+        "A": "🅰️Aランク(2条件一致・発注)",
+        "B": "🅱️Bランク(1条件のみ・見送り)",
+    }.get(result["rank"], result["rank"])
     reasons_text = "\n".join(f"- {r}" for r in result["reasons"]) or "- (根拠なし)"
+    lot_line = f"発注ロット: {result['lot']}\n" if result["should_trade"] else "発注: 見送り(条件不足)\n"
     content = (
-        f"{emoji} **{symbol_display} {result['signal']}シグナル**\n"
+        f"{emoji} **{symbol_display} {result['signal']}シグナル({rank_label})**\n"
         f"レート: {result['price']:.4f}\n"
-        f"買いスコア: {result['buy_score']} / 売りスコア: {result['sell_score']}\n"
+        f"{lot_line}"
         f"根拠:\n{reasons_text}\n"
         f"時刻: {result['timestamp']}"
     )
@@ -182,20 +212,25 @@ def generate_status_page(all_results: list) -> None:
     """全通貨ペアの最新状態を一覧できる、スマホ向けの簡易HTMLページを生成する"""
     DOCS_DIR.mkdir(exist_ok=True)
 
-    def badge(signal: str) -> str:
+    def badge(signal: str, rank: str) -> str:
         color = {"BUY": "#16a34a", "SELL": "#dc2626", "NEUTRAL": "#9ca3af"}.get(signal, "#9ca3af")
         label = {"BUY": "🟢 BUY", "SELL": "🔴 SELL", "NEUTRAL": "⚪ NEUTRAL"}.get(signal, signal)
-        return f'<span style="background:{color};color:#fff;padding:4px 10px;border-radius:12px;font-weight:bold;font-size:14px;">{label}</span>'
+        rank_text = f" [{rank}]" if rank else ""
+        return f'<span style="background:{color};color:#fff;padding:4px 10px;border-radius:12px;font-weight:bold;font-size:14px;">{label}{rank_text}</span>'
 
     rows = []
-    # BUY/SELLを上に、NEUTRALを下にソート
-    sorted_results = sorted(all_results, key=lambda r: 0 if r["signal"] != "NEUTRAL" else 1)
+    # BUY/SELLを上に、NEUTRALを下にソート。同じ中ではランクが高い順
+    rank_order = {"S": 0, "A": 1, "B": 2, None: 3}
+    sorted_results = sorted(
+        all_results,
+        key=lambda r: (0 if r["signal"] != "NEUTRAL" else 1, rank_order.get(r["rank"], 3)),
+    )
     for r in sorted_results:
         reasons_text = "、".join(r["reasons"]) if r["reasons"] else "-"
         rows.append(f"""
         <tr>
           <td style="padding:10px;font-weight:bold;">{r['symbol']}</td>
-          <td style="padding:10px;">{badge(r['signal'])}</td>
+          <td style="padding:10px;">{badge(r['signal'], r['rank'])}</td>
           <td style="padding:10px;">{r['price']:.4f}</td>
           <td style="padding:10px;font-size:13px;color:#555;">{reasons_text}</td>
         </tr>""")
@@ -246,19 +281,25 @@ def main() -> None:
         print(f"[{display}] {json.dumps(result, ensure_ascii=False)}")
         all_results.append({"symbol": display, **result})
 
-        last_signal = state.get(display, "NEUTRAL")
-        if result["signal"] != "NEUTRAL" and result["signal"] != last_signal:
+        # ランクまで含めて前回と比較する(同じBUYでもB→Aに上がったら再通知する)
+        current_key = f"{result['signal']}:{result['rank']}" if result["signal"] != "NEUTRAL" else "NEUTRAL"
+        last_key = state.get(display, "NEUTRAL")
+
+        if result["signal"] != "NEUTRAL" and current_key != last_key:
             notify_discord(display, result)
-            actionable.append({
-                "symbol": display,
-                "signal": result["signal"],
-                "price": result["price"],
-            })
-            state[display] = result["signal"]
+            if result["should_trade"]:
+                actionable.append({
+                    "symbol": display,
+                    "signal": result["signal"],
+                    "price": result["price"],
+                    "lot": result["lot"],
+                    "rank": result["rank"],
+                })
+            state[display] = current_key
         elif result["signal"] == "NEUTRAL":
             state[display] = "NEUTRAL"
         else:
-            print(f"[{display}] 前回と同じシグナル({result['signal']})のため通知をスキップしました")
+            print(f"[{display}] 前回と同じランクのシグナルのため通知をスキップしました")
 
         time.sleep(0.5)  # yfinanceへの連続リクエストを緩やかにする
 
