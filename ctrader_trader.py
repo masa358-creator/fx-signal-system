@@ -138,9 +138,9 @@ def on_order_response(response) -> None:
     maybe_finish()
 
 
-def send_order(symbol_name: str, side: str, entry_price: float, symbol_id: int) -> None:
+def send_order(symbol_name: str, side: str, entry_price: float, symbol_id: int, lot: float, rank: str) -> None:
     if not ENABLE_TRADING:
-        print(f"[ドライラン] ENABLE_TRADING=false のため発注をスキップ({symbol_name} {side})")
+        print(f"[ドライラン] ENABLE_TRADING=false のため発注をスキップ({symbol_name} {side} {rank}ランク {lot}lot)")
         maybe_finish()
         return
 
@@ -159,11 +159,11 @@ def send_order(symbol_name: str, side: str, entry_price: float, symbol_id: int) 
     request.symbolId = symbol_id
     request.orderType = ProtoOAOrderType.MARKET
     request.tradeSide = ProtoOATradeSide.BUY if side == "BUY" else ProtoOATradeSide.SELL
-    request.volume = volume_to_cents(VOLUME_LOTS)
+    request.volume = volume_to_cents(lot)
     request.stopLoss = stop_loss
     request.takeProfit = take_profit
 
-    print(f"[発注] {symbol_name} {side} volume={VOLUME_LOTS}lot SL={stop_loss} TP={take_profit}")
+    print(f"[発注] {symbol_name} {side} {rank}ランク volume={lot}lot SL={stop_loss} TP={take_profit}")
 
     deferred = client.send(request)
     deferred.addCallbacks(on_order_response, on_error)
@@ -179,11 +179,15 @@ def on_symbols_response(response) -> None:
         symbol_name = entry["symbol"]
         side = entry["signal"]
         entry_price = entry["price"]
+        # ランクごとのロット数(fx_signal_checker.pyが算出したもの)。
+        # 万一未指定なら、安全側のデフォルト(共通ロット数)にフォールバック。
+        lot = entry.get("lot") or VOLUME_LOTS
+        rank = entry.get("rank", "?")
         symbol_id = name_to_id.get(symbol_name)
         if symbol_id is None:
             print(f"シンボル '{symbol_name}' がブローカー側に見つかりません。スキップします。")
             continue
-        orders_to_place.append((symbol_name, side, entry_price, symbol_id))
+        orders_to_place.append((symbol_name, side, entry_price, symbol_id, lot, rank))
 
     if not orders_to_place:
         print("発注可能なシンボルがありませんでした")
@@ -191,8 +195,8 @@ def on_symbols_response(response) -> None:
         return
 
     pending_count = len(orders_to_place)
-    for symbol_name, side, entry_price, symbol_id in orders_to_place:
-        send_order(symbol_name, side, entry_price, symbol_id)
+    for symbol_name, side, entry_price, symbol_id, lot, rank in orders_to_place:
+        send_order(symbol_name, side, entry_price, symbol_id, lot, rank)
 
 
 def on_account_auth_response(_response) -> None:
