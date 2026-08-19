@@ -9,7 +9,7 @@
   "EURUSD": "SELL:B",
   "GBPUSD": "SELL:B",
   "AUDUSD": "SELL:B",
-  "NZDUSD": "NEUTRAL",
+  "NZDUSD": "SELL:B",
   "USDCAD": "BUY:B",
   "USDCHF": "BUY:B",
   "EURGBP": "SELL:B",
