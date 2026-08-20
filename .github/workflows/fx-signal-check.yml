@@ -30,20 +30,23 @@ jobs:
           FX_SYMBOLS: "USDJPY=X,EURJPY=X,GBPJPY=X,AUDJPY=X,NZDJPY=X,CADJPY=X,CHFJPY=X,EURUSD=X,GBPUSD=X,AUDUSD=X,NZDUSD=X,USDCAD=X,USDCHF=X,EURGBP=X,EURAUD=X,EURCHF=X,GBPCHF=X,AUDNZD=X"
           FX_INTERVAL: "1h"
           FX_PERIOD: "30d"
-          LOT_S_RANK: "0.1"  # Sランク(3条件以上一致)のロット数
-          LOT_A_RANK: "0.07" # Aランク(2条件一致)のロット数(0.05〜0.1の中間)
+          LOT_S_RANK: "0.02"  # Sランク(3条件以上一致)のロット数=最大ロット
+          LOT_A_RANK: "0.01"  # Aランク(2条件一致)のロット数=基本ロット
         run: python fx_signal_checker.py
 
-      - name: cTraderで発注(S/Aランクのみ発注、Bランクは見送り。SL/TP・発注上限つき)
+      - name: cTraderで発注(S/Aランクのみ発注、Bランクは見送り。SL/TP・ポジション数/日次損失上限つき)
         env:
           CTRADER_CLIENT_ID: ${{ secrets.CTRADER_CLIENT_ID }}
           CTRADER_CLIENT_SECRET: ${{ secrets.CTRADER_CLIENT_SECRET }}
           CTRADER_ACCESS_TOKEN: ${{ secrets.CTRADER_ACCESS_TOKEN }}
           CTRADER_ACCOUNT_ID: ${{ secrets.CTRADER_ACCOUNT_ID }}
           CTRADER_ENV: "demo" # デモ口座。live口座で使う場合のみ "live" に変更
-          STOP_LOSS_PIPS: "20" # 損切りまでの値幅(pips)
-          TAKE_PROFIT_PIPS: "40" # 利確までの値幅(pips)
-          MAX_ORDERS_PER_DAY: "10" # 1日の発注件数の上限(安全装置)
+          STOP_LOSS_PIPS_S: "20" # Sランク(0.02lot)の損切り値幅(≈400円)
+          STOP_LOSS_PIPS_A: "40" # Aランク(0.01lot)の損切り値幅(≈400円)
+          TP_MULTIPLIER: "2"     # 利確幅 = 損切り幅 × 2
+          MAX_CONCURRENT_POSITIONS: "3" # 同時保有ポジション数の上限
+          MAX_ORDERS_PER_DAY: "10"      # 1日の発注件数の上限
+          DAILY_LOSS_LIMIT_JPY: "1000"  # 1日の最大損失(円)。超えたらその日は発注停止
           ENABLE_TRADING: "true" # trueにするまでは発注せずログ出力のみ(安全装置)
         run: python ctrader_trader.py
 
