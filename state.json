@@ -1,9 +1,9 @@
 {
-  "USDJPY": "NEUTRAL",
+  "USDJPY": "BUY:B",
   "EURJPY": "NEUTRAL",
-  "GBPJPY": "BUY:B",
+  "GBPJPY": "NEUTRAL",
   "AUDJPY": "SELL:B",
-  "NZDJPY": "SELL:B",
+  "NZDJPY": "NEUTRAL",
   "CADJPY": "NEUTRAL",
   "CHFJPY": "NEUTRAL",
   "EURUSD": "NEUTRAL",
@@ -15,6 +15,6 @@
   "EURGBP": "NEUTRAL",
   "EURAUD": "BUY:B",
   "EURCHF": "NEUTRAL",
-  "GBPCHF": "SELL:B",
+  "GBPCHF": "NEUTRAL",
   "AUDNZD": "SELL:B"
 }
