@@ -24,12 +24,14 @@ jobs:
       - name: 依存パッケージをインストール
         run: pip install -r requirements.txt
 
-      - name: シグナルチェックを実行(18通貨ペア・ランク判定)
+      - name: シグナルチェックを実行(FX18ペア+暗号資産10ペア。4時間足/日足でトレンド確認)
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           FX_SYMBOLS: "USDJPY=X,EURJPY=X,GBPJPY=X,AUDJPY=X,NZDJPY=X,CADJPY=X,CHFJPY=X,EURUSD=X,GBPUSD=X,AUDUSD=X,NZDUSD=X,USDCAD=X,USDCHF=X,EURGBP=X,EURAUD=X,EURCHF=X,GBPCHF=X,AUDNZD=X"
-          FX_INTERVAL: "1h"
-          FX_PERIOD: "30d"
+          CRYPTO_SYMBOLS: "BTC-USD,ETH-USD,LTC-USD,XRP-USD,BCH-USD,ADA-USD,SOL-USD,DOGE-USD,DOT-USD,LINK-USD"
+          FX_INTERVAL: "1h"      # エントリータイミング判定(下位足)
+          FX_PERIOD: "30d"       # 1h足の取得期間(4時間足への変換にも利用)
+          FX_DAILY_PERIOD: "200d" # 日足トレンド判定用の取得期間
           LOT_S_RANK: "0.02"  # Sランク(3条件以上一致)のロット数=最大ロット
           LOT_A_RANK: "0.01"  # Aランク(2条件一致)のロット数=基本ロット
         run: python fx_signal_checker.py
