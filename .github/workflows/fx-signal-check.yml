@@ -42,7 +42,7 @@ jobs:
           CTRADER_CLIENT_SECRET: ${{ secrets.CTRADER_CLIENT_SECRET }}
           CTRADER_ACCESS_TOKEN: ${{ secrets.CTRADER_ACCESS_TOKEN }}
           CTRADER_ACCOUNT_ID: ${{ secrets.CTRADER_ACCOUNT_ID }}
-          CTRADER_ENV: "demo" # デモ口座。live口座で使う場合のみ "live" に変更
+          CTRADER_ENV: "live" # ライブ(本番)口座に接続
           STOP_LOSS_PIPS_S: "20" # Sランク(0.02lot)の損切り値幅(≈400円)
           STOP_LOSS_PIPS_A: "40" # Aランク(0.01lot)の損切り値幅(≈400円)
           TP_MULTIPLIER: "2"     # 利確幅 = 損切り幅 × 2
