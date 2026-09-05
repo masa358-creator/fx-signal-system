@@ -25,6 +25,6 @@
   "ADAUSD": "BUY:B",
   "SOLUSD": "NEUTRAL",
   "DOGEUSD": "BUY:B",
-  "DOTUSD": "NEUTRAL",
+  "DOTUSD": "SELL:B",
   "LINKUSD": "NEUTRAL"
 }
