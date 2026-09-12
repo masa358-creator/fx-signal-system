@@ -17,8 +17,8 @@
   "EURCHF": "SELL:B",
   "GBPCHF": "SELL:B",
   "AUDNZD": "SELL:B",
-  "BTCUSD": "BUY:B",
-  "ETHUSD": "BUY:B",
+  "BTCUSD": "NEUTRAL",
+  "ETHUSD": "NEUTRAL",
   "LTCUSD": "NEUTRAL",
   "XRPUSD": "NEUTRAL",
   "BCHUSD": "NEUTRAL",
@@ -26,5 +26,5 @@
   "SOLUSD": "NEUTRAL",
   "DOGEUSD": "NEUTRAL",
   "DOTUSD": "NEUTRAL",
-  "LINKUSD": "BUY:B"
+  "LINKUSD": "NEUTRAL"
 }
