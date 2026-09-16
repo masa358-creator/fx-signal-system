@@ -58,6 +58,7 @@ ENV = os.environ.get("CTRADER_ENV", "demo")
 
 STOP_LOSS_PIPS_S = float(os.environ.get("STOP_LOSS_PIPS_S", "20"))
 STOP_LOSS_PIPS_A = float(os.environ.get("STOP_LOSS_PIPS_A", "40"))
+CRYPTO_STOP_LOSS_PCT = float(os.environ.get("CRYPTO_STOP_LOSS_PCT", "1.5")) / 100  # 暗号資産の損切り(%)
 TP_MULTIPLIER = float(os.environ.get("TP_MULTIPLIER", "2"))
 MAX_CONCURRENT_POSITIONS = int(os.environ.get("MAX_CONCURRENT_POSITIONS", "3"))
 MAX_ORDERS_PER_DAY = int(os.environ.get("MAX_ORDERS_PER_DAY", "10"))
@@ -83,6 +84,11 @@ def pip_size(symbol_name: str) -> float:
 
 def price_digits(symbol_name: str) -> int:
     return 3 if "JPY" in symbol_name else 5
+
+
+def crypto_volume_to_cents(lots: float) -> int:
+    """暗号資産は『1ロット=1コイン』(BTCUSD等で確認済み)。FXの10万通貨換算は使わない。"""
+    return int(lots * 100)
 
 
 def stop_loss_pips_for_rank(rank: str) -> float:
@@ -141,34 +147,50 @@ def on_order_response(response) -> None:
     maybe_finish()
 
 
-def send_order(symbol_name: str, side: str, entry_price: float, symbol_id: int, lot: float, rank: str) -> None:
+def send_order(symbol_name: str, side: str, entry_price: float, symbol_id: int, lot: float, rank: str, asset_type: str) -> None:
     if not ENABLE_TRADING:
         print(f"[ドライラン] ENABLE_TRADING=false のため発注をスキップ({symbol_name} {side} {rank}ランク {lot}lot)")
         maybe_finish()
         return
 
-    pip = pip_size(symbol_name)
-    digits = price_digits(symbol_name)
-    sl_pips = stop_loss_pips_for_rank(rank)
-    tp_pips = sl_pips * TP_MULTIPLIER
-
-    if side == "BUY":
-        stop_loss = round(entry_price - sl_pips * pip, digits)
-        take_profit = round(entry_price + tp_pips * pip, digits)
+    if asset_type == "CRYPTO":
+        # 暗号資産は「1ロット=1コイン」。損切り・利確は価格に対する%で計算する。
+        sl_pct = CRYPTO_STOP_LOSS_PCT
+        tp_pct = sl_pct * TP_MULTIPLIER
+        if side == "BUY":
+            stop_loss = round(entry_price * (1 - sl_pct), 2)
+            take_profit = round(entry_price * (1 + tp_pct), 2)
+        else:
+            stop_loss = round(entry_price * (1 + sl_pct), 2)
+            take_profit = round(entry_price * (1 - tp_pct), 2)
+        volume = crypto_volume_to_cents(lot)
+        sl_label = f"{sl_pct*100:.1f}%"
+        tp_label = f"{tp_pct*100:.1f}%"
     else:
-        stop_loss = round(entry_price + sl_pips * pip, digits)
-        take_profit = round(entry_price - tp_pips * pip, digits)
+        pip = pip_size(symbol_name)
+        digits = price_digits(symbol_name)
+        sl_pips = stop_loss_pips_for_rank(rank)
+        tp_pips = sl_pips * TP_MULTIPLIER
+        if side == "BUY":
+            stop_loss = round(entry_price - sl_pips * pip, digits)
+            take_profit = round(entry_price + tp_pips * pip, digits)
+        else:
+            stop_loss = round(entry_price + sl_pips * pip, digits)
+            take_profit = round(entry_price - tp_pips * pip, digits)
+        volume = volume_to_cents(lot)
+        sl_label = f"{sl_pips}pips"
+        tp_label = f"{tp_pips}pips"
 
     request = ProtoOANewOrderReq()
     request.ctidTraderAccountId = ACCOUNT_ID
     request.symbolId = symbol_id
     request.orderType = ProtoOAOrderType.MARKET
     request.tradeSide = ProtoOATradeSide.BUY if side == "BUY" else ProtoOATradeSide.SELL
-    request.volume = volume_to_cents(lot)
+    request.volume = volume
     request.stopLoss = stop_loss
     request.takeProfit = take_profit
 
-    print(f"[発注] {symbol_name} {side} {rank}ランク volume={lot}lot SL={stop_loss}({sl_pips}pips) TP={take_profit}({tp_pips}pips)")
+    print(f"[発注] {symbol_name}({asset_type}) {side} {rank}ランク volume={lot}lot SL={stop_loss}({sl_label}) TP={take_profit}({tp_label})")
 
     deferred = client.send(request)
     deferred.addCallbacks(on_order_response, on_error)
@@ -187,11 +209,12 @@ def place_orders(name_to_id: dict, allowed_slots: int) -> None:
         entry_price = entry["price"]
         lot = entry.get("lot") or 0.01
         rank = entry.get("rank", "?")
+        asset_type = entry.get("asset_type", "FX")
         symbol_id = name_to_id.get(symbol_name)
         if symbol_id is None:
             print(f"シンボル '{symbol_name}' がブローカー側に見つかりません。スキップします。")
             continue
-        orders_to_place.append((symbol_name, side, entry_price, symbol_id, lot, rank))
+        orders_to_place.append((symbol_name, side, entry_price, symbol_id, lot, rank, asset_type))
 
     if not orders_to_place:
         print("発注可能な注文がありませんでした")
@@ -199,8 +222,8 @@ def place_orders(name_to_id: dict, allowed_slots: int) -> None:
         return
 
     pending_count = len(orders_to_place)
-    for symbol_name, side, entry_price, symbol_id, lot, rank in orders_to_place:
-        send_order(symbol_name, side, entry_price, symbol_id, lot, rank)
+    for symbol_name, side, entry_price, symbol_id, lot, rank, asset_type in orders_to_place:
+        send_order(symbol_name, side, entry_price, symbol_id, lot, rank, asset_type)
 
 
 def on_reconcile_response(response, name_to_id: dict) -> None:
