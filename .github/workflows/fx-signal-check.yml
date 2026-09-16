@@ -28,7 +28,10 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           FX_SYMBOLS: "USDJPY=X,EURJPY=X,GBPJPY=X,AUDJPY=X,NZDJPY=X,CADJPY=X,CHFJPY=X,EURUSD=X,GBPUSD=X,AUDUSD=X,NZDUSD=X,USDCAD=X,USDCHF=X,EURGBP=X,EURAUD=X,EURCHF=X,GBPCHF=X,AUDNZD=X"
-          CRYPTO_SYMBOLS: "BTC-USD,ETH-USD,LTC-USD,XRP-USD,BCH-USD,ADA-USD,SOL-USD,DOGE-USD,DOT-USD,LINK-USD"
+          CRYPTO_SYMBOLS: "BTC-USD,ETH-USD,LTC-USD,XRP-USD,BCH-USD,ADA-USD,SOL-USD,BNB-USD,DOT-USD,LINK-USD"
+          CRYPTO_TRADABLE_SYMBOLS: "BTCUSD,ETHUSD" # 発注可能な暗号資産(仕様確認済みのみ)
+          CRYPTO_LOT_S_RANK: "0.002" # 暗号資産Sランクのロット数(1ロット=1コイン基準)
+          CRYPTO_LOT_A_RANK: "0.001" # 暗号資産Aランクのロット数
           FX_INTERVAL: "1h"      # エントリータイミング判定(下位足)
           FX_PERIOD: "30d"       # 1h足の取得期間(4時間足への変換にも利用)
           FX_DAILY_PERIOD: "200d" # 日足トレンド判定用の取得期間
@@ -45,6 +48,7 @@ jobs:
           CTRADER_ENV: "live" # ライブ(本番)口座に接続
           STOP_LOSS_PIPS_S: "20" # Sランク(0.02lot)の損切り値幅(≈400円)
           STOP_LOSS_PIPS_A: "40" # Aランク(0.01lot)の損切り値幅(≈400円)
+          CRYPTO_STOP_LOSS_PCT: "1.5" # 暗号資産(BTC/ETH)の損切り(価格の%)
           TP_MULTIPLIER: "2"     # 利確幅 = 損切り幅 × 2
           MAX_CONCURRENT_POSITIONS: "3" # 同時保有ポジション数の上限
           MAX_ORDERS_PER_DAY: "10"      # 1日の発注件数の上限
