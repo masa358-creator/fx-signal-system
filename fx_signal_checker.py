@@ -34,14 +34,23 @@ DEFAULT_SYMBOLS = [
     "EURGBP=X", "EURAUD=X", "EURCHF=X", "GBPCHF=X", "AUDNZD=X",
 ]
 
-# 暗号資産(現時点では通知・一覧表示のみ。発注はロット換算の仕様確認後に対応予定)
+# 暗号資産(実際にIC MarketsのcTraderで取り扱いのある銘柄名に合わせています)
+# 発注可能なのはCRYPTO_TRADABLE_SYMBOLSで指定した銘柄のみ(仕様確認済みのBTC・ETH)。
+# それ以外は通知・一覧表示のみ。
 DEFAULT_CRYPTO_SYMBOLS = [
     "BTC-USD", "ETH-USD", "LTC-USD", "XRP-USD", "BCH-USD",
-    "ADA-USD", "SOL-USD", "DOGE-USD", "DOT-USD", "LINK-USD",
+    "ADA-USD", "SOL-USD", "BNB-USD", "DOT-USD", "LINK-USD",
 ]
+# yfinanceのティッカー表記が、cTrader側の実際の銘柄名と異なるものだけ個別マッピング
+CRYPTO_NAME_OVERRIDES = {
+    "LINK-USD": "LNKUSD",  # cTrader側は "LNKUSD" 表記(LINKUSDではない)
+}
 
 SYMBOLS = [s.strip() for s in os.environ.get("FX_SYMBOLS", ",".join(DEFAULT_SYMBOLS)).split(",") if s.strip()]
 CRYPTO_SYMBOLS = [s.strip() for s in os.environ.get("CRYPTO_SYMBOLS", ",".join(DEFAULT_CRYPTO_SYMBOLS)).split(",") if s.strip()]
+CRYPTO_TRADABLE_SYMBOLS = set(
+    s.strip() for s in os.environ.get("CRYPTO_TRADABLE_SYMBOLS", "BTCUSD,ETHUSD").split(",") if s.strip()
+)
 ENTRY_INTERVAL = os.environ.get("FX_INTERVAL", "1h")   # エントリータイミング判定(下位足)
 ENTRY_PERIOD = os.environ.get("FX_PERIOD", "30d")
 DAILY_PERIOD = os.environ.get("FX_DAILY_PERIOD", "200d")  # 日足トレンド判定用(MA75に必要な日数を確保)
@@ -52,6 +61,11 @@ RANK_LOTS = {
     "S": float(os.environ.get("LOT_S_RANK", "0.1")),   # 3条件以上一致
     "A": float(os.environ.get("LOT_A_RANK", "0.07")),  # 2条件一致(0.05〜0.1の中間値)
 }
+# 暗号資産は「1ロット=1コイン」でFXより単位が大きいため、ロット数を別枠で管理
+CRYPTO_RANK_LOTS = {
+    "S": float(os.environ.get("CRYPTO_LOT_S_RANK", "0.002")),
+    "A": float(os.environ.get("CRYPTO_LOT_A_RANK", "0.001")),
+}
 
 STATE_FILE = Path(__file__).parent / "state.json"
 ACTIONABLE_FILE = Path(__file__).parent / "actionable_signals.json"
@@ -60,7 +74,9 @@ STATUS_PAGE = DOCS_DIR / "index.html"
 
 
 def display_symbol_name(yf_symbol: str) -> str:
-    """'USDJPY=X' -> 'USDJPY'、'BTC-USD' -> 'BTCUSD'"""
+    """'USDJPY=X' -> 'USDJPY'、'BTC-USD' -> 'BTCUSD'(個別マッピングがあればそちらを優先)"""
+    if yf_symbol in CRYPTO_NAME_OVERRIDES:
+        return CRYPTO_NAME_OVERRIDES[yf_symbol]
     return yf_symbol.replace("=X", "").replace("-", "")
 
 
@@ -358,12 +374,17 @@ def main() -> None:
 
             result = apply_trend_filter(result, trend_4h, trend_daily)
 
-            # 暗号資産は現時点では通知・一覧表示のみ(発注のロット換算仕様が未確認のため)
             if asset_type == "CRYPTO":
-                if result["should_trade"]:
-                    result["reasons"] = result["reasons"] + ["暗号資産は現在発注非対応(通知のみ)"]
-                result["should_trade"] = False
-                result["lot"] = None
+                if display in CRYPTO_TRADABLE_SYMBOLS:
+                    # 発注可能な暗号資産(BTC/ETH)は、専用のロット数に置き換える
+                    if result["rank"] in CRYPTO_RANK_LOTS:
+                        result["lot"] = CRYPTO_RANK_LOTS[result["rank"]]
+                else:
+                    # 未確認の銘柄は通知・一覧表示のみ
+                    if result["should_trade"]:
+                        result["reasons"] = result["reasons"] + ["暗号資産(仕様未確認のため発注非対応・通知のみ)"]
+                    result["should_trade"] = False
+                    result["lot"] = None
         except Exception as exc:  # 1銘柄の失敗で全体を止めない
             print(f"[{display}] エラーのためスキップ: {exc}")
             continue
@@ -385,6 +406,7 @@ def main() -> None:
                     "price": result["price"],
                     "lot": result["lot"],
                     "rank": result["rank"],
+                    "asset_type": asset_type,
                 })
             state[display] = current_key
         elif result["signal"] == "NEUTRAL":
