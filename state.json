@@ -20,13 +20,13 @@
   "BTCUSD": "SELL:B",
   "ETHUSD": "SELL:B",
   "LTCUSD": "SELL:B",
-  "XRPUSD": "NEUTRAL",
-  "BCHUSD": "SELL:A",
+  "XRPUSD": "SELL:B",
+  "BCHUSD": "SELL:B",
   "ADAUSD": "SELL:B",
   "SOLUSD": "SELL:B",
   "DOGEUSD": "BUY:B",
   "DOTUSD": "NEUTRAL",
   "LINKUSD": "BUY:B",
-  "BNBUSD": "SELL:B",
+  "BNBUSD": "NEUTRAL",
   "LNKUSD": "SELL:B"
 }
