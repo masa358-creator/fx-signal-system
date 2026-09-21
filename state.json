@@ -1,9 +1,9 @@
 {
-  "USDJPY": "SELL:B",
-  "EURJPY": "SELL:A",
-  "GBPJPY": "SELL:B",
+  "USDJPY": "NEUTRAL",
+  "EURJPY": "NEUTRAL",
+  "GBPJPY": "NEUTRAL",
   "AUDJPY": "NEUTRAL",
-  "NZDJPY": "SELL:B",
+  "NZDJPY": "NEUTRAL",
   "CADJPY": "NEUTRAL",
   "CHFJPY": "SELL:B",
   "EURUSD": "NEUTRAL",
@@ -15,7 +15,7 @@
   "EURGBP": "NEUTRAL",
   "EURAUD": "NEUTRAL",
   "EURCHF": "BUY:B",
-  "GBPCHF": "NEUTRAL",
+  "GBPCHF": "BUY:B",
   "AUDNZD": "NEUTRAL",
   "BTCUSD": "SELL:B",
   "ETHUSD": "SELL:B",
@@ -28,5 +28,5 @@
   "DOTUSD": "NEUTRAL",
   "LINKUSD": "BUY:B",
   "BNBUSD": "SELL:B",
-  "LNKUSD": "NEUTRAL"
+  "LNKUSD": "SELL:B"
 }
