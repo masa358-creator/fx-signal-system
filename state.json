@@ -22,11 +22,11 @@
   "LTCUSD": "NEUTRAL",
   "XRPUSD": "BUY:B",
   "BCHUSD": "NEUTRAL",
-  "ADAUSD": "BUY:B",
-  "SOLUSD": "BUY:B",
+  "ADAUSD": "NEUTRAL",
+  "SOLUSD": "NEUTRAL",
   "DOGEUSD": "BUY:B",
-  "DOTUSD": "BUY:B",
+  "DOTUSD": "NEUTRAL",
   "LINKUSD": "BUY:B",
   "BNBUSD": "NEUTRAL",
-  "LNKUSD": "BUY:B"
+  "LNKUSD": "NEUTRAL"
 }
