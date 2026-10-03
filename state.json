@@ -27,6 +27,6 @@
   "DOGEUSD": "BUY:B",
   "DOTUSD": "NEUTRAL",
   "LINKUSD": "BUY:B",
-  "BNBUSD": "SELL:A",
-  "LNKUSD": "NEUTRAL"
+  "BNBUSD": "SELL:B",
+  "LNKUSD": "SELL:B"
 }
