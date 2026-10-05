@@ -1,0 +1,20 @@
+name: Backtest
+
+on:
+  workflow_dispatch: {} # 手動実行のみ(発注・コミットは一切しません)
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: バックテスト実行(FX18ペア+BTC/ETH、1時間足は直近約730日)
+        run: python backtest.py --out backtest_results
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backtest_results
+          path: backtest_results/
