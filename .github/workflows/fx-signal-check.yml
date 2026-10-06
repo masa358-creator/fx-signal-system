@@ -56,11 +56,36 @@ jobs:
           ENABLE_TRADING: "true" # trueにするまでは発注せずログ出力のみ(安全装置)
         run: python ctrader_trader.py
 
+      - name: cTraderで発注(FxPro口座。小資金のためSランクのFXのみ・0.01lot固定・試運転中)
+        # FxPro側でエラーが出ても、IC Marketsの処理と状態コミットは止めない
+        continue-on-error: true
+        timeout-minutes: 5 # 接続が固まっても他の処理を巻き込まない
+        env:
+          CTRADER_CLIENT_ID: ${{ secrets.CTRADER_CLIENT_ID }}
+          CTRADER_CLIENT_SECRET: ${{ secrets.CTRADER_CLIENT_SECRET }}
+          CTRADER_ACCESS_TOKEN: ${{ secrets.CTRADER_ACCESS_TOKEN_FXPRO }}
+          CTRADER_ACCOUNT_ID: ${{ secrets.CTRADER_ACCOUNT_ID_FXPRO }}
+          CTRADER_ENV: "live"
+          ACCOUNT_LABEL: "FxPro"
+          TRADE_LOG_FILE_NAME: "trade_log_fxpro.json"
+          ALLOWED_RANKS: "S"          # 小資金のため、確度の高いSランクのみ
+          ALLOWED_ASSET_TYPES: "FX"   # 暗号資産は銘柄仕様が未確認のため対象外
+          FORCE_LOT: "0.01"           # 最小ロットに固定(0.02lotだと20pips損切りで約400円=残高の2割)
+          STOP_LOSS_PIPS_S: "20"      # 0.01lotで約200円
+          TP_MULTIPLIER: "2"
+          MAX_CONCURRENT_POSITIONS: "1"
+          MAX_ORDERS_PER_DAY: "3"
+          DAILY_LOSS_LIMIT_JPY: "300" # 残高約2,000円の15%
+          VERIFY_CONNECTION: "true"   # シグナルが無くても接続して残高・銘柄名を確認する(試運転用)
+          ENABLE_TRADING: "false"     # 試運転中。ログで残高・銘柄の一致を確認してから "true" に変更する
+        run: python ctrader_trader.py
+
       - name: state.json とステータスページの変更をコミット
         run: |
           git config user.name "fx-signal-bot"
           git config user.email "actions@github.com"
           git add state.json docs/index.html
           [ -f trade_log.json ] && git add trade_log.json
+          [ -f trade_log_fxpro.json ] && git add trade_log_fxpro.json
           git diff --staged --quiet || git commit -m "chore: update signal state and status page [skip ci]"
           git push

@@ -21,6 +21,14 @@ fx_signal_checker.py が書き出した actionable_signals.json
   DAILY_LOSS_LIMIT_JPY       任意。1日の最大損失(円)。デフォルト1000
   ENABLE_TRADING             任意。"true" にしない限り発注せずログ出力のみ(安全装置)
 
+複数口座(ブローカー)で動かすための任意設定(未設定なら従来どおりの動作):
+  ACCOUNT_LABEL              ログ表示用の口座名。デフォルト "main"
+  TRADE_LOG_FILE_NAME        口座ごとの発注ログのファイル名。デフォルト "trade_log.json"
+  ALLOWED_RANKS              発注するランク(カンマ区切り)。デフォルト "S,A"
+  ALLOWED_ASSET_TYPES        発注する資産種別(カンマ区切り)。デフォルト "FX,CRYPTO"
+  FORCE_LOT                  設定すると、ランクに関係なくFXのロットをこの値に固定(小資金口座用)
+  VERIFY_CONNECTION          "true" の場合、シグナルが無くても接続して残高と銘柄名の有無を確認して終了
+
 注意:
   - pips→円の換算は、JPY絡みの通貨ペアは正確ですが、それ以外は概算です
     (1pip ≈ 10円 × (lot÷0.01) という業界の目安値で計算しています)。
@@ -65,15 +73,40 @@ MAX_ORDERS_PER_DAY = int(os.environ.get("MAX_ORDERS_PER_DAY", "10"))
 DAILY_LOSS_LIMIT_JPY = float(os.environ.get("DAILY_LOSS_LIMIT_JPY", "1000"))
 ENABLE_TRADING = os.environ.get("ENABLE_TRADING", "false").lower() == "true"
 
+ACCOUNT_LABEL = os.environ.get("ACCOUNT_LABEL", "main")
+ALLOWED_RANKS = {r.strip() for r in os.environ.get("ALLOWED_RANKS", "S,A").split(",") if r.strip()}
+ALLOWED_ASSET_TYPES = {t.strip() for t in os.environ.get("ALLOWED_ASSET_TYPES", "FX,CRYPTO").split(",") if t.strip()}
+FORCE_LOT = float(os.environ["FORCE_LOT"]) if os.environ.get("FORCE_LOT") else None
+VERIFY_CONNECTION = os.environ.get("VERIFY_CONNECTION", "false").lower() == "true"
+
+# 接続確認モードで、ブローカー側に銘柄があるかを表示するための一覧
+VERIFY_SYMBOLS = [
+    "USDJPY", "EURJPY", "GBPJPY", "AUDJPY", "NZDJPY", "CADJPY", "CHFJPY",
+    "EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF",
+    "EURGBP", "EURAUD", "EURCHF", "GBPCHF", "AUDNZD", "BTCUSD", "ETHUSD",
+]
+
 ACTIONABLE_FILE = Path(__file__).parent / "actionable_signals.json"
-TRADE_LOG_FILE = Path(__file__).parent / "trade_log.json"
+TRADE_LOG_FILE = Path(__file__).parent / os.environ.get("TRADE_LOG_FILE_NAME", "trade_log.json")
+
+print(f"[{ACCOUNT_LABEL}] 口座ID={ACCOUNT_ID} 環境={ENV} 発注={'有効' if ENABLE_TRADING else '無効(ドライラン)'}"
+      f" 対象ランク={sorted(ALLOWED_RANKS)} 対象資産={sorted(ALLOWED_ASSET_TYPES)}"
+      f" 固定ロット={FORCE_LOT if FORCE_LOT is not None else 'なし'}")
 
 if ACTIONABLE_FILE.exists():
-    SIGNALS = json.loads(ACTIONABLE_FILE.read_text())
+    ALL_SIGNALS = json.loads(ACTIONABLE_FILE.read_text())
 else:
-    SIGNALS = []
+    ALL_SIGNALS = []
 
-if not SIGNALS:
+# この口座で発注対象にするランク・資産種別だけに絞る
+SIGNALS = [
+    s for s in ALL_SIGNALS
+    if s.get("rank", "?") in ALLOWED_RANKS and s.get("asset_type", "FX") in ALLOWED_ASSET_TYPES
+]
+if len(SIGNALS) != len(ALL_SIGNALS):
+    print(f"[{ACCOUNT_LABEL}] この口座の対象外のシグナルを除外しました({len(ALL_SIGNALS)}件 → {len(SIGNALS)}件)")
+
+if not SIGNALS and not VERIFY_CONNECTION:
     print("発注対象のシグナルがないため終了します")
     raise SystemExit(0)
 
@@ -210,6 +243,8 @@ def place_orders(name_to_id: dict, allowed_slots: int) -> None:
         lot = entry.get("lot") or 0.01
         rank = entry.get("rank", "?")
         asset_type = entry.get("asset_type", "FX")
+        if FORCE_LOT is not None and asset_type != "CRYPTO":
+            lot = FORCE_LOT  # 小資金口座用: ランクに関係なくロットを固定
         symbol_id = name_to_id.get(symbol_name)
         if symbol_id is None:
             print(f"シンボル '{symbol_name}' がブローカー側に見つかりません。スキップします。")
@@ -259,6 +294,13 @@ def on_trader_response(response, name_to_id: dict) -> None:
     daily_loss = trade_log["start_balance_jpy"] - current_balance_jpy
     print(f"本日の損益: {-daily_loss:.0f}円(マイナスが損失)")
 
+    if not SIGNALS:
+        # 接続確認モード(VERIFY_CONNECTION)でシグナルが無い場合は、ここで確認だけして終了
+        print(f"[{ACCOUNT_LABEL}] 接続確認のみ: 発注対象のシグナルが無いため、ここで終了します")
+        save_trade_log(trade_log)
+        stop_reactor()
+        return
+
     if daily_loss >= DAILY_LOSS_LIMIT_JPY:
         print(f"[安全装置] 本日の最大損失({DAILY_LOSS_LIMIT_JPY:.0f}円)に達しているため、本日はこれ以上発注しません")
         save_trade_log(trade_log)
@@ -276,6 +318,13 @@ def on_trader_response(response, name_to_id: dict) -> None:
 def on_symbols_response(response) -> None:
     message = Protobuf.extract(response)
     name_to_id = {symbol.symbolName: symbol.symbolId for symbol in message.symbol}
+
+    if VERIFY_CONNECTION:
+        found = [n for n in VERIFY_SYMBOLS if n in name_to_id]
+        missing = [n for n in VERIFY_SYMBOLS if n not in name_to_id]
+        print(f"[{ACCOUNT_LABEL}] 銘柄の照合: 全{len(name_to_id)}銘柄中、監視対象{len(found)}/{len(VERIFY_SYMBOLS)}が一致")
+        if missing:
+            print(f"[{ACCOUNT_LABEL}] ブローカー側に見つからない銘柄(銘柄名の表記違いの可能性): {missing}")
 
     request = ProtoOATraderReq()
     request.ctidTraderAccountId = ACCOUNT_ID
