@@ -18,15 +18,15 @@
   "GBPCHF": "NEUTRAL",
   "AUDNZD": "NEUTRAL",
   "BTCUSD": "NEUTRAL",
-  "ETHUSD": "BUY:A",
+  "ETHUSD": "BUY:B",
   "LTCUSD": "NEUTRAL",
-  "XRPUSD": "BUY:A",
-  "BCHUSD": "BUY:A",
+  "XRPUSD": "BUY:B",
+  "BCHUSD": "BUY:B",
   "ADAUSD": "NEUTRAL",
   "SOLUSD": "NEUTRAL",
   "DOGEUSD": "BUY:B",
   "DOTUSD": "NEUTRAL",
   "LINKUSD": "BUY:B",
   "BNBUSD": "BUY:B",
-  "LNKUSD": "BUY:A"
+  "LNKUSD": "NEUTRAL"
 }
