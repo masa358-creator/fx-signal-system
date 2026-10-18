@@ -24,6 +24,13 @@ jobs:
       - name: 依存パッケージをインストール
         run: pip install -r requirements.txt
 
+      - name: 非公開の状態ファイルを復元(残高・ピークを公開リポジトリに載せないためキャッシュで引き継ぐ)
+        uses: actions/cache@v4
+        with:
+          path: private_state
+          key: private-state-${{ github.run_id }}
+          restore-keys: private-state-
+
       - name: シグナルチェックを実行(FX18ペア+暗号資産10ペア。4時間足/日足でトレンド確認)
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
@@ -46,6 +53,13 @@ jobs:
           CTRADER_ACCESS_TOKEN: ${{ secrets.CTRADER_ACCESS_TOKEN }}
           CTRADER_ACCOUNT_ID: ${{ secrets.CTRADER_ACCOUNT_ID }}
           CTRADER_ENV: "live" # ライブ(本番)口座に接続
+          ACCOUNT_LABEL: "IC Markets"
+          ACCOUNT_CURRENCY: "USD" # この口座はUSD建て(DAILY_LOSS_LIMIT_JPYは円換算して判定)
+          USDJPY_RATE: "150"      # 円換算・ロット計算用の概算レート
+          RISK_PCT: "0"           # 残高連動ロットは 0=無効。有効化するなら例えば 1(=1回の損切りで残高の1%)
+          DD_STOP_PCT: "0"        # ドローダウン自動停止は 0=無効。有効化するなら例えば 15
+          DD_RESET_TOKEN: ${{ vars.DD_RESET_TOKEN }} # 停止後の解除用(値を変えると解除)
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           STOP_LOSS_PIPS_S: "20" # Sランク(0.02lot)の損切り値幅(≈400円)
           STOP_LOSS_PIPS_A: "40" # Aランク(0.01lot)の損切り値幅(≈400円)
           CRYPTO_STOP_LOSS_PCT: "1.5" # 暗号資産(BTC/ETH)の損切り(価格の%)
@@ -68,6 +82,12 @@ jobs:
           CTRADER_ENV: "live"
           ACCOUNT_LABEL: "FxPro"
           TRADE_LOG_FILE_NAME: "trade_log_fxpro.json"
+          ACCOUNT_CURRENCY: "JPY"
+          USDJPY_RATE: "150"
+          RISK_PCT: "0"               # FORCE_LOT使用中は無視される(残高が増えたらFORCE_LOTを外して有効化)
+          DD_STOP_PCT: "0"
+          DD_RESET_TOKEN: ${{ vars.DD_RESET_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           ALLOWED_RANKS: "S"          # 小資金のため、確度の高いSランクのみ
           ALLOWED_ASSET_TYPES: "FX"   # 暗号資産は銘柄仕様が未確認のため対象外
           FORCE_LOT: "0.01"           # 最小ロットに固定(0.02lotだと20pips損切りで約400円=残高の2割)
@@ -85,7 +105,6 @@ jobs:
           git config user.name "fx-signal-bot"
           git config user.email "actions@github.com"
           git add state.json docs/index.html
-          [ -f trade_log.json ] && git add trade_log.json
-          [ -f trade_log_fxpro.json ] && git add trade_log_fxpro.json
+          # 残高を含む trade_log*.json は公開リポジトリに載せない(private_state/ はキャッシュ経由)
           git diff --staged --quiet || git commit -m "chore: update signal state and status page [skip ci]"
           git push

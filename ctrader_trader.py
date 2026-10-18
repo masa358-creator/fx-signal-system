@@ -79,6 +79,15 @@ ALLOWED_ASSET_TYPES = {t.strip() for t in os.environ.get("ALLOWED_ASSET_TYPES", 
 FORCE_LOT = float(os.environ["FORCE_LOT"]) if os.environ.get("FORCE_LOT") else None
 VERIFY_CONNECTION = os.environ.get("VERIFY_CONNECTION", "false").lower() == "true"
 
+# --- 口座通貨・リスク管理(追加分。RISK_PCT / DD_STOP_PCT は 0 の間は何もしない=従来動作) ---
+ACCOUNT_CURRENCY = os.environ.get("ACCOUNT_CURRENCY", "JPY").upper()   # "JPY" か "USD"
+USDJPY_RATE = float(os.environ.get("USDJPY_RATE", "150"))              # 円換算・ロット計算用の概算レート
+RISK_PCT = float(os.environ.get("RISK_PCT", "0"))                      # 1回の損切りで失う残高の割合(%)。0=無効
+MIN_LOT_RISK_MULT = float(os.environ.get("MIN_LOT_RISK_MULT", "3"))    # 最小ロットでもRISK_PCTのこの倍まで許容(小資金用)
+DD_STOP_PCT = float(os.environ.get("DD_STOP_PCT", "0"))                # 残高が最高値からこの%下がったら停止。0=無効
+DD_RESET_TOKEN = os.environ.get("DD_RESET_TOKEN", "")                  # 値を変えると停止を解除(GitHubのVariablesで設定)
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+
 # 接続確認モードで、ブローカー側に銘柄があるかを表示するための一覧
 VERIFY_SYMBOLS = [
     "USDJPY", "EURJPY", "GBPJPY", "AUDJPY", "NZDJPY", "CADJPY", "CHFJPY",
@@ -87,7 +96,11 @@ VERIFY_SYMBOLS = [
 ]
 
 ACTIONABLE_FILE = Path(__file__).parent / "actionable_signals.json"
-TRADE_LOG_FILE = Path(__file__).parent / os.environ.get("TRADE_LOG_FILE_NAME", "trade_log.json")
+# 残高情報を含むため、公開リポジトリにコミットしない非公開フォルダ(Actionsのキャッシュで引き継ぐ)に置く
+PRIVATE_DIR = Path(__file__).parent / "private_state"
+PRIVATE_DIR.mkdir(exist_ok=True)
+TRADE_LOG_FILE = PRIVATE_DIR / os.environ.get("TRADE_LOG_FILE_NAME", "trade_log.json")
+STATE_FILE = PRIVATE_DIR / f"risk_state_{ACCOUNT_LABEL}.json"
 
 print(f"[{ACCOUNT_LABEL}] 口座ID={ACCOUNT_ID} 環境={ENV} 発注={'有効' if ENABLE_TRADING else '無効(ドライラン)'}"
       f" 対象ランク={sorted(ALLOWED_RANKS)} 対象資産={sorted(ALLOWED_ASSET_TYPES)}"
@@ -128,12 +141,65 @@ def stop_loss_pips_for_rank(rank: str) -> float:
     return STOP_LOSS_PIPS_S if rank == "S" else STOP_LOSS_PIPS_A
 
 
+def notify_discord(message: str) -> None:
+    if not DISCORD_WEBHOOK_URL:
+        return
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            DISCORD_WEBHOOK_URL, data=json.dumps({"content": f"[{ACCOUNT_LABEL}] {message}"}).encode(),
+            headers={"Content-Type": "application/json", "User-Agent": "fx-signal-bot"})
+        urllib.request.urlopen(req, timeout=10)
+    except Exception as e:
+        print(f"Discord通知に失敗: {e}")
+
+
+def load_risk_state() -> dict:
+    if STATE_FILE.exists():
+        return json.loads(STATE_FILE.read_text())
+    return {}
+
+
+def save_risk_state(st: dict) -> None:
+    STATE_FILE.write_text(json.dumps(st, ensure_ascii=False, indent=2))
+
+
+def to_jpy(amount: float) -> float:
+    return amount * USDJPY_RATE if ACCOUNT_CURRENCY == "USD" else amount
+
+
+def pip_value_per_lot(symbol_name: str):
+    """1ロット・1pipの価値を口座通貨で返す。換算できない通貨ペア(クロス通貨など)は None。"""
+    if symbol_name.endswith("JPY"):
+        v_jpy = 1000.0                     # 10万通貨 × 0.01円
+        return v_jpy / USDJPY_RATE if ACCOUNT_CURRENCY == "USD" else v_jpy
+    if symbol_name.endswith("USD"):
+        v_usd = 10.0                       # 10万通貨 × 0.0001ドル
+        return v_usd * USDJPY_RATE if ACCOUNT_CURRENCY == "JPY" else v_usd
+    return None
+
+
+def risk_based_lot(symbol_name: str, rank: str, balance: float):
+    """残高×RISK_PCT を損切りで失う額とみなしたロット(0.01刻み切り捨て)。
+    最小ロットでもリスクがRISK_PCTの MIN_LOT_RISK_MULT 倍を超える場合は None(=見送り)。"""
+    pv = pip_value_per_lot(symbol_name)
+    if pv is None or balance <= 0:
+        return None
+    sl_pips = stop_loss_pips_for_rank(rank)
+    risk_amount = balance * RISK_PCT / 100
+    lot = int(risk_amount / (sl_pips * pv) / 0.01) * 0.01
+    if lot >= 0.01:
+        return round(lot, 2)
+    min_lot_risk_pct = 0.01 * sl_pips * pv / balance * 100
+    return 0.01 if min_lot_risk_pct <= RISK_PCT * MIN_LOT_RISK_MULT else None
+
+
 def load_trade_log() -> dict:
     if TRADE_LOG_FILE.exists():
         data = json.loads(TRADE_LOG_FILE.read_text())
         if data.get("date") == str(date.today()):
             return data
-    return {"date": str(date.today()), "count": 0, "start_balance_jpy": None}
+    return {"date": str(date.today()), "count": 0, "start_balance": None}
 
 
 def save_trade_log(log: dict) -> None:
@@ -147,6 +213,7 @@ client = Client(host, EndPoints.PROTOBUF_PORT, TcpProtocol)
 
 pending_count = 0
 executed_count = 0
+account_balance = 0.0  # 口座通貨建ての現在残高(on_trader_responseで更新)
 
 
 def volume_to_cents(lots: float) -> int:
@@ -245,6 +312,13 @@ def place_orders(name_to_id: dict, allowed_slots: int) -> None:
         asset_type = entry.get("asset_type", "FX")
         if FORCE_LOT is not None and asset_type != "CRYPTO":
             lot = FORCE_LOT  # 小資金口座用: ランクに関係なくロットを固定
+        elif RISK_PCT > 0 and asset_type != "CRYPTO":
+            risk_lot = risk_based_lot(symbol_name, rank, account_balance)
+            if risk_lot is None:
+                print(f"[リスク割合ロット] {symbol_name}: 残高に対してリスクが大きすぎる/換算不可のため見送ります")
+                continue
+            lot = risk_lot
+            print(f"[リスク割合ロット] {symbol_name}: 残高の{RISK_PCT}%リスク → {lot}ロット")
         symbol_id = name_to_id.get(symbol_name)
         if symbol_id is None:
             print(f"シンボル '{symbol_name}' がブローカー側に見つかりません。スキップします。")
@@ -283,16 +357,44 @@ def on_reconcile_response(response, name_to_id: dict) -> None:
 
 
 def on_trader_response(response, name_to_id: dict) -> None:
+    global account_balance
     message = Protobuf.extract(response)
-    current_balance_jpy = message.trader.balance / 100.0  # cTraderは残高をセント単位相当で返す
-    print(f"現在の口座残高: {current_balance_jpy:.0f}円")
+    digits = getattr(message.trader, "moneyDigits", 0) or 2  # 口座通貨の小数桁(未提供なら2桁)
+    balance = message.trader.balance / (10 ** digits)
+    account_balance = balance
+    print(f"現在の口座残高: {balance:,.2f} {ACCOUNT_CURRENCY}")
 
-    if trade_log.get("start_balance_jpy") is None:
-        trade_log["start_balance_jpy"] = current_balance_jpy
-        print(f"本日の開始時点残高として記録: {current_balance_jpy:.0f}円")
+    if trade_log.get("start_balance") is None:
+        trade_log["start_balance"] = balance
+        print("本日の開始時点残高を記録しました")
 
-    daily_loss = trade_log["start_balance_jpy"] - current_balance_jpy
-    print(f"本日の損益: {-daily_loss:.0f}円(マイナスが損失)")
+    daily_loss = trade_log["start_balance"] - balance
+    daily_loss_jpy = to_jpy(daily_loss)
+    print(f"本日の損益: {-daily_loss_jpy:.0f}円相当(マイナスが損失)")
+
+    # --- ドローダウン自動停止 / 月次レポート(残高は非公開フォルダにのみ保存) ---
+    rs = load_risk_state()
+    month = str(date.today())[:7]
+    if rs.get("month") != month:
+        if rs.get("month") and rs.get("month_start"):
+            chg = balance - rs["month_start"]
+            notify_discord(f"📅 {rs['month']} 月次: 残高増減 {chg:+,.2f} {ACCOUNT_CURRENCY}"
+                           f"({chg / rs['month_start'] * 100:+.1f}%、入出金を含む)")
+        rs["month"], rs["month_start"] = month, balance
+    if DD_RESET_TOKEN != rs.get("reset_token", ""):
+        if rs.get("halted"):
+            notify_discord("✅ ドローダウン停止を解除しました(解除トークンが変更されたため)")
+        rs["halted"] = False
+        rs["peak"] = balance
+        rs["reset_token"] = DD_RESET_TOKEN
+    rs["peak"] = max(rs.get("peak", balance), balance)
+    if DD_STOP_PCT > 0 and not rs.get("halted"):
+        dd = (rs["peak"] - balance) / rs["peak"] * 100 if rs["peak"] > 0 else 0
+        if dd >= DD_STOP_PCT:
+            rs["halted"] = True
+            notify_discord(f"🛑 ドローダウン自動停止: 最高値から{dd:.1f}%下落(上限{DD_STOP_PCT}%)。新規発注を止めました。"
+                           f"解除はGitHubのVariables『DD_RESET_TOKEN』を別の値に変更してください。")
+    save_risk_state(rs)
 
     if not SIGNALS:
         # 接続確認モード(VERIFY_CONNECTION)でシグナルが無い場合は、ここで確認だけして終了
@@ -301,7 +403,13 @@ def on_trader_response(response, name_to_id: dict) -> None:
         stop_reactor()
         return
 
-    if daily_loss >= DAILY_LOSS_LIMIT_JPY:
+    if DD_STOP_PCT > 0 and rs.get("halted"):
+        print(f"[安全装置] ドローダウン自動停止中のため発注しません(最高値から{DD_STOP_PCT}%以上の下落)")
+        save_trade_log(trade_log)
+        stop_reactor()
+        return
+
+    if daily_loss_jpy >= DAILY_LOSS_LIMIT_JPY:
         print(f"[安全装置] 本日の最大損失({DAILY_LOSS_LIMIT_JPY:.0f}円)に達しているため、本日はこれ以上発注しません")
         save_trade_log(trade_log)
         stop_reactor()
