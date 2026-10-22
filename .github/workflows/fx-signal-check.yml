@@ -97,7 +97,7 @@ jobs:
           MAX_ORDERS_PER_DAY: "3"
           DAILY_LOSS_LIMIT_JPY: "300" # 残高約2,000円の15%
           VERIFY_CONNECTION: "true"   # シグナルが無くても接続して残高・銘柄名を確認する(試運転用)
-          ENABLE_TRADING: "false"     # 試運転中。ログで残高・銘柄の一致を確認してから "true" に変更する
+          ENABLE_TRADING: "true"      # 実弾発注ON(2026-10-22)。Sランク・FXのみ・0.01lot固定・同時1件・1日3件・日次損失300円で停止
         run: python ctrader_trader.py
 
       - name: state.json とステータスページの変更をコミット
