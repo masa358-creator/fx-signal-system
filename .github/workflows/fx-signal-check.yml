@@ -42,7 +42,7 @@ jobs:
           FX_INTERVAL: "1h"      # エントリータイミング判定(下位足)
           FX_PERIOD: "30d"       # 1h足の取得期間(4時間足への変換にも利用)
           FX_DAILY_PERIOD: "200d" # 日足トレンド判定用の取得期間
-          LOT_S_RANK: "0.02"  # Sランク(3条件以上一致)のロット数=最大ロット
+          LOT_S_RANK: "0.01"  # Sランク(3条件以上一致)のロット数(小資金のためAランクと同じに引き下げ 2026-10-26)
           LOT_A_RANK: "0.01"  # Aランク(2条件一致)のロット数=基本ロット
         run: python fx_signal_checker.py
 
@@ -64,7 +64,7 @@ jobs:
           STOP_LOSS_PIPS_A: "40" # Aランク(0.01lot)の損切り値幅(≈400円)
           CRYPTO_STOP_LOSS_PCT: "1.5" # 暗号資産(BTC/ETH)の損切り(価格の%)
           TP_MULTIPLIER: "2"     # 利確幅 = 損切り幅 × 2
-          MAX_CONCURRENT_POSITIONS: "3" # 同時保有ポジション数の上限
+          MAX_CONCURRENT_POSITIONS: "2" # 同時保有ポジション数の上限(3→2に引き下げ 2026-10-26)
           MAX_ORDERS_PER_DAY: "10"      # 1日の発注件数の上限
           DAILY_LOSS_LIMIT_JPY: "1000"  # 1日の最大損失(円)。超えたらその日は発注停止
           ENABLE_TRADING: "true" # trueにするまでは発注せずログ出力のみ(安全装置)
