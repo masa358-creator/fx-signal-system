@@ -20,13 +20,13 @@
   "BTCUSD": "NEUTRAL",
   "ETHUSD": "NEUTRAL",
   "LTCUSD": "BUY:B",
-  "XRPUSD": "BUY:A",
-  "BCHUSD": "BUY:B",
-  "ADAUSD": "BUY:B",
+  "XRPUSD": "NEUTRAL",
+  "BCHUSD": "NEUTRAL",
+  "ADAUSD": "NEUTRAL",
   "SOLUSD": "NEUTRAL",
   "DOGEUSD": "BUY:B",
   "DOTUSD": "BUY:B",
   "LINKUSD": "BUY:B",
   "BNBUSD": "NEUTRAL",
-  "LNKUSD": "SELL:B"
+  "LNKUSD": "NEUTRAL"
 }
