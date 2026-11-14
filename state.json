@@ -17,16 +17,16 @@
   "EURCHF": "NEUTRAL",
   "GBPCHF": "SELL:B",
   "AUDNZD": "NEUTRAL",
-  "BTCUSD": "BUY:A",
-  "ETHUSD": "BUY:A",
-  "LTCUSD": "BUY:A",
-  "XRPUSD": "NEUTRAL",
+  "BTCUSD": "BUY:B",
+  "ETHUSD": "BUY:B",
+  "LTCUSD": "BUY:B",
+  "XRPUSD": "BUY:A",
   "BCHUSD": "BUY:B",
-  "ADAUSD": "BUY:A",
+  "ADAUSD": "BUY:B",
   "SOLUSD": "BUY:B",
   "DOGEUSD": "BUY:B",
   "DOTUSD": "BUY:B",
   "LINKUSD": "BUY:B",
-  "BNBUSD": "BUY:A",
-  "LNKUSD": "BUY:A"
+  "BNBUSD": "BUY:B",
+  "LNKUSD": "BUY:B"
 }
